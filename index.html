@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Dodge</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 0;
+        }
+
+        canvas {
+            border: 2px solid #000;
+            display: block;
+            margin: 20px auto;
+            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .start-menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .start-menu h1 {
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
+
+        .start-button {
+            font-size: 20px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .start-button:hover {
+            background-color: #45a049;
+        }
+
+        .high-score {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 18px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="start-menu">
+        <h1>Pixel Dodge</h1>
+        <button class="start-button" onclick="startGame()">Start Game</button>
+    </div>
+    <canvas id="gameCanvas" width="896" height="414" style="display:none;"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let score = 0;
+        let highScore = localStorage.getItem('highScore') || 0;
+        let objects = [];
+        let obstacles = [];
+        let bullets = [];
+	let invincibilityPowerUps = [];
+        let gameStarted = false;
+        let moveLeft = false;
+        let moveRight = false;
+        let moveUp = false;
+        let moveDown = false;
+        let s = 0;
+	let increasedSpeed = false;
+	let t = .03;
+	let lastScoreForSpeedIncrease = 0;
+	let increasedSpawn = false;
+	let lastScoreForSpawnIncrease = 0;
+	let invincible = false;
+        let invincibilityDuration = 3000;
+        let invincibilityEndTime = 0;
+	let shieldStatus = "Off";
+
+        // Player
+        let player = {
+            x: 50,
+            y: canvas.height / 2,
+            width: 40,
+            height: 80,
+            speed: 10,
+            image: new Image(),
+            imageLoaded: false
+        };
+        player.image.src = './assets/player.png'; // Replace with the path to your player image
+        player.image.onload = function() {
+            player.imageLoaded = true;
+        };
+
+        // Bullet
+        let bulletSpeed = 15;
+        let bulletSize = 5; // Adjust bullet size as needed
+
+        // Game loop
+        function gameLoop() {
+            if (gameStarted) {
+                update();
+                draw();
+            }
+            requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            gameStarted = true;
+            document.querySelector('.start-menu').style.display = 'none';
+            canvas.style.display = 'block';
+            gameLoop();
+        }
+
+        function update() {
+            movePlayer();
+            checkCollisions();
+            spawnObjects();
+	    spawnInvincibilityPowerUps();
+            // Check if score is a multiple of 100
+            if (score > 0 && score % 100 === 0 && score > lastScoreForSpeedIncrease && !increasedSpeed) {
+        increaseObstacleSpeed();
+        lastScoreForSpeedIncrease = score; // Update the last score for speed increase
+        increasedSpeed = true; // Set speedIncreased to true to indicate that the speed has been increased
+    } else if (score % 100 !== 0) {
+        increasedSpeed = false; // Reset speedIncreased if the score is not a multiple of 100
+    }
+	    if (score > 0 && score % 200 === 0 && score > lastScoreForSpawnIncrease && !increasedSpawn) {
+        increaseObstacleSpawn();
+        lastScoreForSpawnIncrease = score; // Update the last score for speed increase
+        increasedSpawn = true; // Set speedIncreased to true to indicate that the speed has been increased
+    } else if (score % 200 !== 0) {
+        increasedSpawn = false; // Reset speedIncreased if the score is not a multiple of 100
+    }
+            spawnObstacles();
+            moveObstacles();
+            moveBullets();
+	    if (invincible && Date.now() >= invincibilityEndTime) {
+                invincible = false;
+		shieldStatus = "Off";
+            }
+        }
+	function increaseObstacleSpawn() {
+	    t += .01
+	}
+        function increaseObstacleSpeed() {
+            // Increase the speed of obstacles
+            s += .1;
+        }
+        function movePlayer() {
+            if (moveLeft && player.x > 0) {
+                player.x -= player.speed;
+            }
+            if (moveRight && player.x < canvas.width - player.width) {
+                player.x += player.speed;
+            }
+            if (moveUp && player.y > 0) {
+                player.y -= player.speed;
+            }
+            if (moveDown && player.y < canvas.height - player.height) {
+                player.y += player.speed;
+            }
+        }
+
+        document.addEventListener('keydown', (event) => {
+            switch (event.key) {
+                case 'ArrowUp':
+                    moveUp = true;
+                    break;
+                case 'ArrowDown':
+                    moveDown = true;
+                    break;
+                case 'ArrowLeft':
+                    moveLeft = true;
+                    break;
+                case 'ArrowRight':
+                    moveRight = true;
+                    break;
+                case ' ':
+                    shoot();
+                    break;
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            switch (event.key) {
+                case 'ArrowUp':
+                    moveUp = false;
+                    break;
+                case 'ArrowDown':
+                    moveDown = false;
+                    break;
+                case 'ArrowLeft':
+                    moveLeft = false;
+                    break;
+                case 'ArrowRight':
+                    moveRight = false;
+                    break;
+            }
+        });
+
+        window.addEventListener("keydown", function(e) {
+  if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(e.code) > -1) {
+    e.preventDefault();
+  }
+}, false);
+
+
+        function drawPlayer() {
+            if (player.imageLoaded) {
+                ctx.drawImage(player.image, player.x, player.y, player.width, player.height);
+            } else {
+                ctx.fillStyle = 'blue';
+                ctx.fillRect(player.x, player.y, player.width, player.height);
+            }
+        }
+
+        function spawnObjects() {
+            if (Math.random() < .03) {
+                let obj = {
+                    x: Math.random() * (canvas.width - 20),
+                    y: Math.random() * (canvas.height - 20), // Ensure objects spawn within canvas height
+                    width: 20,
+                    height: 20,
+                    color: 'green'
+                };
+                objects.push(obj);
+            }
+	    
+        }
+	function spawnInvincibilityPowerUps() {
+	    if (Math.random() < 0.002) { // Adjust spawn rate as needed
+                let invincibilityPowerUp = {
+                    x: Math.random() * (canvas.width - 20),
+                    y: Math.random() * (canvas.height - 20),
+                    width: 30,
+                    height: 30,
+                    color: 'blue' // You can adjust the color
+                };
+                invincibilityPowerUps.push(invincibilityPowerUp);
+            }
+	}
+
+        function spawnObstacles() {
+            if (Math.random() < t) { // Increase the frequency of obstacle spawning
+                let obs = {
+                    x: canvas.width,
+                    y: Math.random() * (canvas.height - 30), // Ensure obstacles spawn within canvas height
+                    width: 30,
+                    height: 30,
+                    color: 'red',
+                    speed: 13 + s
+                };
+                obstacles.push(obs);
+            }
+        }
+
+        function moveObstacles() {
+    obstacles.forEach(obs => {
+        // Move obstacles with their regular speed
+        obs.x -= obs.speed;
+
+        
+        if (score > 500) {
+            t = .02
+            // If the score is greater than 1000, adjust their movement slightly to follow the player while maintaining their leftward path
+            let playerCenterX = player.x + player.width / 2;
+            let playerCenterY = player.y + player.height / 2;
+            let obstacleCenterX = obs.x + obs.width / 2;
+            let obstacleCenterY = obs.y + obs.height / 2;
+
+            // Calculate the angle towards the player
+            let angle = Math.atan2(playerCenterY - obstacleCenterY, playerCenterX - obstacleCenterX);
+
+            // Calculate the movement components based on the angle
+            let dx = Math.cos(angle) * obs.speed * 0.25; // Adjust the factor for reduced speed as needed
+            let dy = Math.sin(angle) * obs.speed * 0.25; // Adjust the factor for reduced speed as needed
+
+            // Ensure that the leftward movement is maintained by adjusting dx
+            let leftwardMovement = Math.min(dx, -.5); // Adjust -2 to control the leftward movement
+            obs.x += dx - leftwardMovement;
+            obs.y += dy;
+        }
+    });
+}
+
+
+
+
+        function drawObjects() {
+            objects.forEach(obj => {
+                ctx.fillStyle = obj.color;
+                ctx.fillRect(obj.x, obj.y, obj.width, obj.height);
+            });
+        }
+	function drawInvincibilityPowerUp() {
+            invincibilityPowerUps.forEach(invincibilityPowerUp => {
+                ctx.fillStyle = invincibilityPowerUp.color;
+                ctx.fillRect(invincibilityPowerUp.x, invincibilityPowerUp.y, invincibilityPowerUp.width, invincibilityPowerUp.height);
+            });
+        }
+        function drawObstacles() {
+            obstacles.forEach(obs => {
+                ctx.fillStyle = obs.color;
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+            });
+        }
+
+        function drawBullets() {
+            bullets.forEach(bullet => {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(bullet.x, bullet.y, bulletSize, bulletSize);
+            });
+        }
+
+        function moveBullets() {
+            bullets.forEach(bullet => {
+                bullet.x += bulletSpeed;
+            });
+        }
+
+        function shoot() {
+            let bullet = {
+                x: player.x + player.width, // Adjust bullet spawn position
+                y: player.y + player.height / 2, // Adjust bullet spawn position
+            };
+            bullets.push(bullet);
+        }
+
+        function checkCollisions() {
+    objects.forEach((obj, index) => {
+        if (detectCollision(player, obj)) {
+            objects.splice(index, 1);
+            score += 10;
+        }
+    });
+    invincibilityPowerUps.forEach((invincibilityPowerUp, index) => {
+        if (detectCollision(player, invincibilityPowerUp)) {
+            invincibilityPowerUps.splice(index, 1);
+            startInvincibility();
+        }
+    });
+
+    obstacles.forEach((obs, obsIndex) => {
+        if (detectCollision(player, obs) && !invincible) {
+            gameOver();
+        }
+    });
+
+    bullets.forEach((bullet, bulletIndex) => {
+        obstacles.forEach((obs, obsIndex) => {
+            if (detectCollision(obs, bullet)) {
+                obstacles.splice(obsIndex, 1);
+                bullets.splice(bulletIndex, 1);
+		score += 5;
+            }
+        });
+    });
+}
+
+
+        function detectCollision(rect1, rect2) {
+    // Check if any of the corners of rect1 are inside rect2
+    if (rect1.x > rect2.x && rect1.x < rect2.x + rect2.width &&
+        rect1.y > rect2.y && rect1.y < rect2.y + rect2.height) {
+        return true;
+    }
+    if (rect1.x + rect1.width > rect2.x && rect1.x + rect1.width < rect2.x + rect2.width &&
+        rect1.y > rect2.y && rect1.y < rect2.y + rect2.height) {
+        return true;
+    }
+    if (rect1.x > rect2.x && rect1.x < rect2.x + rect2.width &&
+        rect1.y + rect1.height > rect2.y && rect1.y + rect1.height < rect2.y + rect2.height) {
+        return true;
+    }
+    if (rect1.x + rect1.width > rect2.x && rect1.x + rect1.width < rect2.x + rect2.width &&
+        rect1.y + rect1.height > rect2.y && rect1.y + rect1.height < rect2.y + rect2.height) {
+        return true;
+    }
+    // Check if any of the corners of rect2 are inside rect1
+    if (rect2.x > rect1.x && rect2.x < rect1.x + rect1.width &&
+        rect2.y > rect1.y && rect2.y < rect1.y + rect1.height) {
+        return true;
+    }
+    if (rect2.x + rect2.width > rect1.x && rect2.x + rect2.width < rect1.x + rect1.width &&
+        rect2.y > rect1.y && rect2.y < rect1.y + rect1.height) {
+        return true;
+    }
+    if (rect2.x > rect1.x && rect2.x < rect1.x + rect1.width &&
+        rect2.y + rect2.height > rect1.y && rect2.y + rect2.height < rect1.y + rect1.height) {
+        return true;
+    }
+    if (rect2.x + rect2.width > rect1.x && rect2.x + rect2.width < rect1.x + rect1.width &&
+        rect2.y + rect2.height > rect1.y && rect2.y + rect2.height < rect1.y + rect1.height) {
+        return true;
+    }
+    return false;
+}
+
+
+
+
+
+
+        function drawHUD() {
+            ctx.fillStyle = 'black';
+            ctx.font = '20px Arial';
+            ctx.fillText('High Score: ' + highScore, 20, 30);
+            ctx.fillText('Score: ' + score, 20, 60);
+	    ctx.fillText('Shield: ' + shieldStatus, 20, 90);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawObjects();
+	    drawInvincibilityPowerUp();
+            drawObstacles();
+            drawBullets();
+            drawPlayer();
+            drawHUD();
+        }
+
+        function gameOver() {
+            alert('Game Over! Your Score: ' + score);
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('highScore', highScore);
+                alert('Congratulations! You set a new high score!');
+            }
+            score = 0;
+            objects = [];
+            obstacles = [];
+            bullets = [];
+            invincibilityPowerUps = [];
+            player.x = 50;
+            player.y = canvas.height / 2;
+            s = 0;
+	    lastScoreForSpeedIncrease = 0;
+	    increasedSpeed = false;
+	    increasedSpawn = false;
+	    lastScoreForSpawnIncrease = 0;
+	    t = .03;
+            moveUp = false;
+            moveDown = false;
+            moveLeft = false;
+            moveRight = false;
+        }
+
+	function startInvincibility() {
+            invincible = true;
+	    shieldStatus = "On";
+            invincibilityEndTime = Date.now() + invincibilityDuration;
+        }
+    </script>
+</body>
+</html>
